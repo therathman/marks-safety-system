@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mark's Safety System</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: #0f172a; color: #e2e8f0; min-height: 100vh; padding: 2rem 1rem; }
+  .container { max-width: 600px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; font-weight: 700; margin-bottom: 0.3rem; color: #f8fafc; }
+  .subtitle { color: #94a3b8; font-size: 0.95rem; margin-bottom: 2rem; }
+  .card { background: #1e293b; border-radius: 16px; padding: 1.5rem; margin-bottom: 1.25rem;
+          border: 1px solid #334155; }
+  .status-ok   { border-left: 5px solid #22c55e; }
+  .status-warn { border-left: 5px solid #f59e0b; }
+  .status-bad  { border-left: 5px solid #ef4444; }
+  .status-label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em;
+                  color: #94a3b8; margin-bottom: 0.4rem; }
+  .status-value { font-size: 2rem; font-weight: 800; }
+  .ok   { color: #22c55e; }
+  .warn { color: #f59e0b; }
+  .bad  { color: #ef4444; }
+  .checkin-btn {
+    display: block; width: 100%; padding: 1.1rem;
+    background: linear-gradient(135deg, #3b82f6, #6366f1);
+    color: white; font-size: 1.2rem; font-weight: 700; border: none;
+    border-radius: 12px; cursor: pointer; text-align: center;
+    text-decoration: none; margin-bottom: 1.25rem; letter-spacing: 0.02em;
+    transition: opacity 0.2s;
+  }
+  .checkin-btn:hover { opacity: 0.88; }
+  .paw { font-size: 1.4rem; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th { text-align: left; color: #64748b; padding: 0.4rem 0.5rem;
+       border-bottom: 1px solid #334155; font-weight: 600; }
+  td { padding: 0.45rem 0.5rem; border-bottom: 1px solid #1e293b; color: #cbd5e1; }
+  .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 99px;
+           font-size: 0.75rem; font-weight: 600; }
+  .badge-ok   { background: #14532d; color: #86efac; }
+  .badge-warn { background: #78350f; color: #fde68a; }
+  .badge-err  { background: #7f1d1d; color: #fca5a5; }
+  .footer { text-align: center; color: #475569; font-size: 0.8rem; margin-top: 2rem; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🐾 Mark's Safety System</h1>
+  <p class="subtitle">Protecting Angel & Scout — automated check-in monitor</p>
+
+  <!-- Big check-in button -->
+  <a class="checkin-btn" href="/checkin/{{ token }}">
+    ✅ &nbsp;I'm OK — Check In Now
+  </a>
+
+  <!-- Status card -->
+  {% set h = hours_since %}
+  {% if h < 24 %}
+    {% set sc = 'ok' %} {% set sc2 = 'status-ok' %}
+  {% elif h < 48 %}
+    {% set sc = 'warn' %} {% set sc2 = 'status-warn' %}
+  {% else %}
+    {% set sc = 'bad' %} {% set sc2 = 'status-bad' %}
+  {% endif %}
+
+  <div class="card {{ sc2 }}">
+    <div class="status-label">Time since last check-in</div>
+    <div class="status-value {{ sc }}">{{ hours_since }} hrs</div>
+    {% if last_checkin %}
+    <div style="color:#94a3b8; font-size:0.85rem; margin-top:0.5rem;">
+      Last check-in: {{ last_checkin.timestamp.strftime('%b %d, %Y at %I:%M %p') }} UTC
+      &nbsp;·&nbsp; via {{ last_checkin.method }}
+    </div>
+    {% else %}
+    <div style="color:#94a3b8; font-size:0.85rem; margin-top:0.5rem;">No check-ins recorded yet.</div>
+    {% endif %}
+  </div>
+
+  <!-- Timeline -->
+  <div class="card">
+    <div class="status-label" style="margin-bottom:1rem;">How the system works</div>
+    <div style="display:flex; flex-direction:column; gap:0.75rem; font-size:0.9rem; color:#cbd5e1;">
+      <div>🕙 <strong>10:00 AM daily</strong> — SMS sent to your phone asking you to check in</div>
+      <div>📧 <strong>+4 hours</strong> (2 PM) — If no reply, a backup email is sent to you</div>
+      <div>🚨 <strong>+48 hours</strong> — Emergency SMS + email fired to your contact for Angel & Scout</div>
+    </div>
+  </div>
+
+  <!-- Alert log -->
+  {% if alerts %}
+  <div class="card">
+    <div class="status-label" style="margin-bottom:0.75rem;">Recent alert log</div>
+    <table>
+      <tr><th>Time (UTC)</th><th>Type</th><th>Result</th></tr>
+      {% for a in alerts %}
+      <tr>
+        <td>{{ a.timestamp.strftime('%m/%d %I:%M%p') }}</td>
+        <td>{{ a.alert_type }}</td>
+        <td>
+          {% if a.success %}
+            <span class="badge badge-ok">Sent ✓</span>
+          {% else %}
+            <span class="badge badge-err">Failed ✗</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  <div class="footer">This system runs 24/7 and does not require your computer to be on.<br>
+  Angel 🐾 and Scout 🐾 are protected.</div>
+</div>
+</body>
+</html>
