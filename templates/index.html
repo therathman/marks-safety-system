@@ -16,32 +16,54 @@
   .status-ok   { border-left: 5px solid #22c55e; }
   .status-warn { border-left: 5px solid #f59e0b; }
   .status-bad  { border-left: 5px solid #ef4444; }
+  .status-paused  { border-left: 5px solid #a855f7; }
+  .status-stopped { border-left: 5px solid #64748b; }
   .status-label { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em;
                   color: #94a3b8; margin-bottom: 0.4rem; }
   .status-value { font-size: 2rem; font-weight: 800; }
-  .ok   { color: #22c55e; }
-  .warn { color: #f59e0b; }
-  .bad  { color: #ef4444; }
+  .ok      { color: #22c55e; }
+  .warn    { color: #f59e0b; }
+  .bad     { color: #ef4444; }
+  .paused  { color: #a855f7; }
+  .stopped { color: #64748b; }
   .checkin-btn {
     display: block; width: 100%; padding: 1.1rem;
     background: linear-gradient(135deg, #3b82f6, #6366f1);
     color: white; font-size: 1.2rem; font-weight: 700; border: none;
     border-radius: 12px; cursor: pointer; text-align: center;
-    text-decoration: none; margin-bottom: 1.25rem; letter-spacing: 0.02em;
+    text-decoration: none; margin-bottom: 1.25rem;
     transition: opacity 0.2s;
   }
   .checkin-btn:hover { opacity: 0.88; }
-  .paw { font-size: 1.4rem; }
+  .checkin-btn.disabled { background: #334155; color: #64748b; cursor: not-allowed; }
+  .btn { display: inline-block; padding: 0.7rem 1.2rem; border-radius: 10px;
+         font-size: 0.95rem; font-weight: 600; border: none; cursor: pointer;
+         text-decoration: none; transition: opacity 0.2s; }
+  .btn:hover { opacity: 0.85; }
+  .btn-pause  { background: #7c3aed; color: white; }
+  .btn-resume { background: #22c55e; color: white; }
+  .btn-stop   { background: #1e293b; color: #ef4444; border: 1px solid #ef4444; font-size:0.8rem; }
+  .pause-banner { background: #2d1b69; border: 2px solid #a855f7; border-radius: 12px;
+                  padding: 1.2rem; margin-bottom: 1.25rem; text-align: center; }
+  .stopped-banner { background: #1a1a2e; border: 2px solid #475569; border-radius: 12px;
+                    padding: 1.2rem; margin-bottom: 1.25rem; text-align: center; }
+  .error-banner { background: #7f1d1d; border: 1px solid #ef4444; border-radius: 10px;
+                  padding: 1rem; margin-bottom: 1rem; color: #fca5a5; }
+  select, input[type=text] { background: #0f172a; border: 1px solid #475569; color: #e2e8f0;
+    padding: 0.5rem 0.75rem; border-radius: 8px; font-size: 0.95rem; }
   table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
   th { text-align: left; color: #64748b; padding: 0.4rem 0.5rem;
        border-bottom: 1px solid #334155; font-weight: 600; }
   td { padding: 0.45rem 0.5rem; border-bottom: 1px solid #1e293b; color: #cbd5e1; }
   .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 99px;
            font-size: 0.75rem; font-weight: 600; }
-  .badge-ok   { background: #14532d; color: #86efac; }
-  .badge-warn { background: #78350f; color: #fde68a; }
-  .badge-err  { background: #7f1d1d; color: #fca5a5; }
+  .badge-ok  { background: #14532d; color: #86efac; }
+  .badge-err { background: #7f1d1d; color: #fca5a5; }
   .footer { text-align: center; color: #475569; font-size: 0.8rem; margin-top: 2rem; }
+  .row { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+  details { margin-top: 1rem; }
+  summary { color: #ef4444; font-size: 0.85rem; cursor: pointer; }
+  .stop-form { margin-top: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
 </style>
 </head>
 <body>
@@ -49,16 +71,46 @@
   <h1>🐾 Mark's Safety System</h1>
   <p class="subtitle">Protecting Angel & Scout — automated check-in monitor</p>
 
-  <!-- Big check-in button -->
+  {% if error %}
+  <div class="error-banner">⚠️ {{ error }}</div>
+  {% endif %}
+
+  {% if system_state == 'stopped' %}
+  <!-- STOPPED STATE -->
+  <div class="stopped-banner">
+    <div style="font-size:2rem;">🛑</div>
+    <div style="font-weight:800; font-size:1.2rem; color:#94a3b8; margin:0.5rem 0;">System Stopped</div>
+    <div style="color:#64748b; font-size:0.9rem;">No alerts will be sent. Angel & Scout monitoring is off.</div>
+  </div>
+
+  {% elif system_state == 'paused' %}
+  <!-- PAUSED STATE -->
+  <div class="pause-banner">
+    <div style="font-size:2rem;">⏸️</div>
+    <div style="font-weight:800; font-size:1.2rem; color:#a855f7; margin:0.5rem 0;">System Paused</div>
+    {% if pause_until %}
+    <div style="color:#c4b5fd; font-size:0.9rem;">Auto-resumes: {{ pause_until }}</div>
+    {% endif %}
+    <form method="POST" action="/resume" style="margin-top:1rem;">
+      <button type="submit" class="btn btn-resume">▶️ Resume Now</button>
+    </form>
+  </div>
+
+  {% else %}
+  <!-- ACTIVE STATE — Check-in button -->
   <a class="checkin-btn" href="/checkin/{{ token }}">
     ✅ &nbsp;I'm OK — Check In Now
   </a>
+  {% endif %}
 
   <!-- Status card -->
-  {% set h = hours_since %}
-  {% if h < 24 %}
+  {% if system_state == 'stopped' %}
+    {% set sc = 'stopped' %} {% set sc2 = 'status-stopped' %}
+  {% elif system_state == 'paused' %}
+    {% set sc = 'paused' %} {% set sc2 = 'status-paused' %}
+  {% elif hours_since < 24 %}
     {% set sc = 'ok' %} {% set sc2 = 'status-ok' %}
-  {% elif h < 48 %}
+  {% elif hours_since < 48 %}
     {% set sc = 'warn' %} {% set sc2 = 'status-warn' %}
   {% else %}
     {% set sc = 'bad' %} {% set sc2 = 'status-bad' %}
@@ -66,7 +118,11 @@
 
   <div class="card {{ sc2 }}">
     <div class="status-label">Time since last check-in</div>
-    <div class="status-value {{ sc }}">{{ hours_since }} hrs</div>
+    <div class="status-value {{ sc }}">
+      {% if system_state == 'stopped' %}STOPPED
+      {% elif system_state == 'paused' %}PAUSED
+      {% else %}{{ hours_since }} hrs{% endif %}
+    </div>
     {% if last_checkin %}
     <div style="color:#94a3b8; font-size:0.85rem; margin-top:0.5rem;">
       Last check-in: {{ last_checkin.timestamp.strftime('%b %d, %Y at %I:%M %p') }} UTC
@@ -77,15 +133,49 @@
     {% endif %}
   </div>
 
-  <!-- Timeline -->
+  <!-- How it works -->
   <div class="card">
     <div class="status-label" style="margin-bottom:1rem;">How the system works</div>
     <div style="display:flex; flex-direction:column; gap:0.75rem; font-size:0.9rem; color:#cbd5e1;">
-      <div>🕙 <strong>10:00 AM daily</strong> — SMS sent to your phone asking you to check in</div>
-      <div>📧 <strong>+4 hours</strong> (2 PM) — If no reply, a backup email is sent to you</div>
-      <div>🚨 <strong>+48 hours</strong> — Emergency SMS + email fired to your contact for Angel & Scout</div>
+      <div>🕙 <strong>10:00 AM daily</strong> — Text sent to your phone</div>
+      <div>📧 <strong>+4 hours</strong> — Backup email reminder sent to you</div>
+      <div>🚨 <strong>+48 hours silence</strong> — Emergency alert fires to your contact</div>
     </div>
   </div>
+
+  <!-- Pause / Stop controls (only show when active) -->
+  {% if system_state == 'active' %}
+  <div class="card">
+    <div class="status-label" style="margin-bottom:1rem;">System Controls</div>
+
+    <!-- Pause -->
+    <form method="POST" action="/pause">
+      <div class="row">
+        <span style="color:#cbd5e1; font-size:0.9rem;">Pause system for:</span>
+        <select name="days">
+          <option value="3">3 days</option>
+          <option value="7" selected>7 days</option>
+          <option value="14">14 days</option>
+          <option value="30">30 days</option>
+        </select>
+        <button type="submit" class="btn btn-pause">⏸️ Pause</button>
+      </div>
+    </form>
+
+    <!-- Stop (hidden under details) -->
+    <details style="margin-top:1.25rem;">
+      <summary>⚠️ Permanently stop system (both dogs gone)</summary>
+      <form method="POST" action="/stop" class="stop-form">
+        <span style="color:#94a3b8; font-size:0.85rem;">Type confirmation word:</span>
+        <input type="text" name="confirm_word" placeholder="BOTHGONE" style="width:140px;">
+        <button type="submit" class="btn btn-stop">🛑 Stop Forever</button>
+      </form>
+      <div style="color:#64748b; font-size:0.78rem; margin-top:0.5rem;">
+        Confirmation word: <strong>BOTHGONE</strong> — this cannot be undone.
+      </div>
+    </details>
+  </div>
+  {% endif %}
 
   <!-- Alert log -->
   {% if alerts %}
@@ -98,11 +188,8 @@
         <td>{{ a.timestamp.strftime('%m/%d %I:%M%p') }}</td>
         <td>{{ a.alert_type }}</td>
         <td>
-          {% if a.success %}
-            <span class="badge badge-ok">Sent ✓</span>
-          {% else %}
-            <span class="badge badge-err">Failed ✗</span>
-          {% endif %}
+          {% if a.success %}<span class="badge badge-ok">Sent ✓</span>
+          {% else %}<span class="badge badge-err">Failed ✗</span>{% endif %}
         </td>
       </tr>
       {% endfor %}
@@ -110,8 +197,7 @@
   </div>
   {% endif %}
 
-  <div class="footer">This system runs 24/7 and does not require your computer to be on.<br>
-  Angel 🐾 and Scout 🐾 are protected.</div>
+  <div class="footer">System runs 24/7 in the cloud — Angel 🐾 and Scout 🐾 are protected.</div>
 </div>
 </body>
 </html>
