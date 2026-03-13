@@ -1,7 +1,7 @@
 import os
 import logging
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from apscheduler.schedulers.background import BackgroundScheduler
 import smtplib
@@ -25,9 +25,10 @@ EMAIL_USER      = os.environ.get('EMAIL_USER', '')
 EMAIL_PASS      = os.environ.get('EMAIL_PASS', '')
 EMAIL_SMTP      = os.environ.get('EMAIL_SMTP', 'smtp.gmail.com')
 EMAIL_PORT      = int(os.environ.get('EMAIL_PORT', 587))
-CHECKIN_HOUR    = int(os.environ.get('CHECKIN_HOUR', 10))
+CHECKIN_HOUR    = int(os.environ.get('CHECKIN_HOUR', 15))
 TIMEZONE        = os.environ.get('TIMEZONE', 'America/New_York')
 CHECKIN_TOKEN   = os.environ.get('CHECKIN_TOKEN', 'markscheckin2024')
+STOP_WORD       = os.environ.get('STOP_WORD', 'BOTHGONE')
 
 MY_SMS_EMAIL        = f"{MY_PHONE}@tmomail.net"
 EMERGENCY_SMS_EMAIL = f"{EMERGENCY_PHONE}@vtext.com"
@@ -38,6 +39,7 @@ EMERGENCY_MESSAGE = (
     "welfare of his Service Dogs, Angel and Scout. This is an automated message — not a test."
 )
 
+# ── Database Models ────────────────────────────────────────────────────────────
 class CheckIn(db.Model):
     id        = db.Column(db.Integer, primary_key=True)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
@@ -51,6 +53,29 @@ class AlertLog(db.Model):
     success    = db.Column(db.Boolean)
     message    = db.Column(db.String(500))
 
+class SystemState(db.Model):
+    id          = db.Column(db.Integer, primary_key=True)
+    state       = db.Column(db.String(20), default='active')  # active, paused, stopped
+    pause_until = db.Column(db.DateTime, nullable=True)
+    updated_at  = db.Column(db.DateTime, default=datetime.utcnow)
+    note        = db.Column(db.String(200), nullable=True)
+
+def get_state():
+    state = SystemState.query.first()
+    if not state:
+        state = SystemState(state='active')
+        db.session.add(state)
+        db.session.commit()
+    # Auto-resume if pause period has expired
+    if state.state == 'paused' and state.pause_until and datetime.utcnow() > state.pause_until:
+        state.state = 'active'
+        state.pause_until = None
+        state.note = 'Auto-resumed after pause period'
+        state.updated_at = datetime.utcnow()
+        db.session.commit()
+    return state
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
 def send_email(to, subject, body):
     try:
         msg = MIMEText(body)
@@ -81,8 +106,13 @@ def log_alert(alert_type, success, message):
         db.session.add(AlertLog(alert_type=alert_type, success=success, message=message[:500]))
         db.session.commit()
 
+# ── Scheduled Jobs ─────────────────────────────────────────────────────────────
 def send_daily_ping():
     with app.app_context():
+        state = get_state()
+        if state.state != 'active':
+            logger.info(f"Daily ping skipped — system is {state.state}")
+            return
         app_url = os.environ.get('APP_URL', 'https://marks-safety-system-production.up.railway.app')
         msg = (
             f"Good morning Mark! Daily safety check-in. "
@@ -94,6 +124,10 @@ def send_daily_ping():
 
 def check_and_escalate():
     with app.app_context():
+        state = get_state()
+        if state.state != 'active':
+            logger.info(f"Escalation check skipped — system is {state.state}")
+            return
         hours = hours_since_last_checkin()
         app_url = os.environ.get('APP_URL', 'https://marks-safety-system-production.up.railway.app')
 
@@ -127,16 +161,23 @@ def check_and_escalate():
                 log_alert('emergency', sms_ok or email_ok, EMERGENCY_MESSAGE)
                 logger.warning("EMERGENCY ALERT SENT.")
 
+# ── Routes ─────────────────────────────────────────────────────────────────────
 @app.route('/')
 def index():
     last   = CheckIn.query.order_by(CheckIn.timestamp.desc()).first()
     hours  = hours_since_last_checkin()
     alerts = AlertLog.query.order_by(AlertLog.timestamp.desc()).limit(10).all()
+    state  = get_state()
+    pause_until_str = None
+    if state.pause_until:
+        pause_until_str = state.pause_until.strftime('%B %d, %Y at %I:%M %p UTC')
     return render_template('index.html',
                            last_checkin=last,
                            hours_since=round(hours, 1),
                            alerts=alerts,
-                           token=CHECKIN_TOKEN)
+                           token=CHECKIN_TOKEN,
+                           system_state=state.state,
+                           pause_until=pause_until_str)
 
 @app.route('/checkin/<token>')
 def checkin(token):
@@ -147,18 +188,72 @@ def checkin(token):
     now_str = datetime.utcnow().strftime('%B %d, %Y at %I:%M %p UTC')
     return render_template('confirmed.html', now=now_str)
 
+@app.route('/pause', methods=['POST'])
+def pause():
+    days = int(request.form.get('days', 7))
+    state = get_state()
+    if state.state == 'stopped':
+        return jsonify({'error': 'System is stopped'}), 400
+    state.state      = 'paused'
+    state.pause_until = datetime.utcnow() + timedelta(days=days)
+    state.updated_at  = datetime.utcnow()
+    state.note        = f'Paused for {days} days'
+    db.session.commit()
+    return redirect(url_for('index'))
+
+@app.route('/resume', methods=['POST'])
+def resume():
+    state = get_state()
+    if state.state == 'stopped':
+        return jsonify({'error': 'System is stopped'}), 400
+    state.state      = 'active'
+    state.pause_until = None
+    state.updated_at  = datetime.utcnow()
+    state.note        = 'Manually resumed'
+    db.session.commit()
+    # Record a check-in on resume so 48hr clock resets
+    db.session.add(CheckIn(method='resume', note='System resumed'))
+    db.session.commit()
+    return redirect(url_for('index'))
+
+@app.route('/stop', methods=['POST'])
+def stop():
+    confirm = request.form.get('confirm_word', '').strip().upper()
+    if confirm != STOP_WORD.upper():
+        return render_template('index.html',
+                               error='Incorrect confirmation word. System NOT stopped.',
+                               last_checkin=CheckIn.query.order_by(CheckIn.timestamp.desc()).first(),
+                               hours_since=round(hours_since_last_checkin(), 1),
+                               alerts=AlertLog.query.order_by(AlertLog.timestamp.desc()).limit(10).all(),
+                               token=CHECKIN_TOKEN,
+                               system_state=get_state().state,
+                               pause_until=None)
+    state = get_state()
+    state.state      = 'stopped'
+    state.pause_until = None
+    state.updated_at  = datetime.utcnow()
+    state.note        = 'System permanently stopped by user'
+    db.session.commit()
+    return render_template('stopped.html')
+
 @app.route('/status')
 def status():
     hours = hours_since_last_checkin()
+    state = get_state()
     return jsonify({
         'hours_since_checkin': round(hours, 1),
-        'status': 'OK' if hours < 24 else ('WARNING' if hours < 48 else 'EMERGENCY_SENT')
+        'system_state': state.state,
+        'status': 'STOPPED' if state.state == 'stopped' else
+                  'PAUSED'  if state.state == 'paused'  else
+                  'OK'      if hours < 24 else
+                  'WARNING' if hours < 48 else 'EMERGENCY_SENT'
     })
 
 @app.route('/health')
 def health():
     return 'OK', 200
 
+# ── Startup ────────────────────────────────────────────────────────────────────
 with app.app_context():
     db.create_all()
 
