@@ -1,11 +1,10 @@
 import os
 import logging
+import requests
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from apscheduler.schedulers.background import BackgroundScheduler
-import smtplib
-from email.mime.text import MIMEText
 import pytz
 
 app = Flask(__name__)
@@ -21,11 +20,9 @@ MY_PHONE        = os.environ.get('MY_PHONE', '')
 EMERGENCY_PHONE = os.environ.get('EMERGENCY_PHONE', '')
 MY_EMAIL        = os.environ.get('MY_EMAIL', '')
 EMERGENCY_EMAIL = os.environ.get('EMERGENCY_EMAIL', '')
-EMAIL_USER      = os.environ.get('EMAIL_USER', '')
-EMAIL_PASS      = os.environ.get('EMAIL_PASS', '')
-EMAIL_SMTP      = os.environ.get('EMAIL_SMTP', 'smtp.gmail.com')
-EMAIL_PORT      = int(os.environ.get('EMAIL_PORT', 587))
-CHECKIN_HOUR    = int(os.environ.get('CHECKIN_HOUR', 15))
+BREVO_API_KEY   = os.environ.get('BREVO_API_KEY', '')
+SENDER_EMAIL    = os.environ.get('SENDER_EMAIL', '')
+CHECKIN_HOUR    = int(os.environ.get('CHECKIN_HOUR', 21))
 TIMEZONE        = os.environ.get('TIMEZONE', 'America/New_York')
 CHECKIN_TOKEN   = os.environ.get('CHECKIN_TOKEN', 'markscheckin2024')
 STOP_WORD       = os.environ.get('STOP_WORD', 'BOTHGONE')
@@ -55,7 +52,7 @@ class AlertLog(db.Model):
 
 class SystemState(db.Model):
     id          = db.Column(db.Integer, primary_key=True)
-    state       = db.Column(db.String(20), default='active')  # active, paused, stopped
+    state       = db.Column(db.String(20), default='active')
     pause_until = db.Column(db.DateTime, nullable=True)
     updated_at  = db.Column(db.DateTime, default=datetime.utcnow)
     note        = db.Column(db.String(200), nullable=True)
@@ -66,7 +63,6 @@ def get_state():
         state = SystemState(state='active')
         db.session.add(state)
         db.session.commit()
-    # Auto-resume if pause period has expired
     if state.state == 'paused' and state.pause_until and datetime.utcnow() > state.pause_until:
         state.state = 'active'
         state.pause_until = None
@@ -75,24 +71,35 @@ def get_state():
         db.session.commit()
     return state
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
-def send_email(to, subject, body):
+# ── Brevo HTTP API Email ───────────────────────────────────────────────────────
+def send_email(to_email, subject, body):
+    """Send email via Brevo HTTP API — bypasses Railway SMTP block."""
     try:
-        msg = MIMEText(body)
-        msg['Subject'] = subject
-        msg['From']    = EMAIL_USER
-        msg['To']      = to
-        with smtplib.SMTP(EMAIL_SMTP, EMAIL_PORT) as server:
-            server.starttls()
-            server.login(EMAIL_USER, EMAIL_PASS)
-            server.send_message(msg)
-        logger.info(f"Email sent to {to}")
-        return True
+        url = "https://api.brevo.com/v3/smtp/email"
+        headers = {
+            "accept": "application/json",
+            "api-key": BREVO_API_KEY,
+            "content-type": "application/json"
+        }
+        payload = {
+            "sender": {"name": "Mark's Safety System", "email": SENDER_EMAIL},
+            "to": [{"email": to_email}],
+            "subject": subject,
+            "textContent": body
+        }
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        if response.status_code in (200, 201):
+            logger.info(f"Email sent via Brevo API to {to_email}")
+            return True
+        else:
+            logger.error(f"Brevo API error {response.status_code}: {response.text}")
+            return False
     except Exception as e:
-        logger.error(f"Email failed to {to}: {e}")
+        logger.error(f"Brevo API failed: {e}")
         return False
 
 def send_sms(to_sms_email, body):
+    """Send SMS via carrier email gateway using Brevo HTTP API."""
     return send_email(to_sms_email, '', body)
 
 def hours_since_last_checkin():
@@ -121,6 +128,7 @@ def send_daily_ping():
         )
         ok = send_sms(MY_SMS_EMAIL, msg)
         log_alert('daily_sms', ok, msg)
+        logger.info(f"Daily ping sent: {ok}")
 
 def check_and_escalate():
     with app.app_context():
@@ -194,7 +202,7 @@ def pause():
     state = get_state()
     if state.state == 'stopped':
         return jsonify({'error': 'System is stopped'}), 400
-    state.state      = 'paused'
+    state.state       = 'paused'
     state.pause_until = datetime.utcnow() + timedelta(days=days)
     state.updated_at  = datetime.utcnow()
     state.note        = f'Paused for {days} days'
@@ -206,12 +214,11 @@ def resume():
     state = get_state()
     if state.state == 'stopped':
         return jsonify({'error': 'System is stopped'}), 400
-    state.state      = 'active'
+    state.state       = 'active'
     state.pause_until = None
     state.updated_at  = datetime.utcnow()
     state.note        = 'Manually resumed'
     db.session.commit()
-    # Record a check-in on resume so 48hr clock resets
     db.session.add(CheckIn(method='resume', note='System resumed'))
     db.session.commit()
     return redirect(url_for('index'))
@@ -229,7 +236,7 @@ def stop():
                                system_state=get_state().state,
                                pause_until=None)
     state = get_state()
-    state.state      = 'stopped'
+    state.state       = 'stopped'
     state.pause_until = None
     state.updated_at  = datetime.utcnow()
     state.note        = 'System permanently stopped by user'
@@ -243,10 +250,10 @@ def status():
     return jsonify({
         'hours_since_checkin': round(hours, 1),
         'system_state': state.state,
-        'status': 'STOPPED' if state.state == 'stopped' else
-                  'PAUSED'  if state.state == 'paused'  else
-                  'OK'      if hours < 24 else
-                  'WARNING' if hours < 48 else 'EMERGENCY_SENT'
+        'status': 'STOPPED'  if state.state == 'stopped' else
+                  'PAUSED'   if state.state == 'paused'  else
+                  'OK'       if hours < 24 else
+                  'WARNING'  if hours < 48 else 'EMERGENCY_SENT'
     })
 
 @app.route('/health')
