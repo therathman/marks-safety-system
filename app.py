@@ -10,7 +10,7 @@ from twilio.rest import Client
 app = Flask(__name__)
 
 # Use /data/ to ensure Railway Volume saves your data permanently
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////data/checkins.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///checkins.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.secret_key = os.environ.get('SECRET_KEY', 'angel-scout-safety-2024')
 
