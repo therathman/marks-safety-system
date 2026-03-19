@@ -130,7 +130,7 @@ with app.app_context():
     db.create_all()
 
 scheduler = BackgroundScheduler(timezone=pytz.timezone(TIMEZONE))
-scheduler.add_job(daily_ping, 'cron', hour=CHECKIN_HOUR, minute=0)
+scheduler.add_job(daily_ping, 'cron', hour=CHECKIN_HOUR, minute=0,2,5)
 scheduler.start()
 
 if __name__ == '__main__':
