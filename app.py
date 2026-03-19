@@ -27,7 +27,7 @@ TWILIO_SID      = os.environ.get('TWILIO_SID', '')
 TWILIO_AUTH     = os.environ.get('TWILIO_AUTH', '')
 TWILIO_FROM     = os.environ.get('TWILIO_FROM', '')
 CHECKIN_HOUR    = int(os.environ.get('CHECKIN_HOUR', 10))
-TIMEZONE        = os.environ.get('TIMEZONE', 'America/New_York')
+TIMEZONE        = os.environ.get('TZ', 'America/New_York')
 CHECKIN_TOKEN   = os.environ.get('CHECKIN_TOKEN', 'AngelAndScout2024')
 STOP_WORD       = os.environ.get('STOP_WORD', 'BOTHGONE')
 
