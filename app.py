@@ -39,7 +39,7 @@ class CheckIn(db.Model):
 
 class AlertLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    timestamp = db.Column(db.DateTime, default=lambda:datetime.now(pytz.timezone('America/New_York')))
+    timestamp = db.Column(db.DateTime, default=lambda:datetime.now(pytz.timezone(TIMEZONE)))
     alert_type = db.Column(db.String(50))
     success = db.Column(db.Boolean)
 
