@@ -58,6 +58,38 @@ def send_sms(to_number, body):
         logger.error(f"Twilio Error: {e}")
         return False
 
+import requests
+
+def send_email(to_email, subject, body):
+    try:
+        api_key = os.environ.get("BREVO_API_KEY")
+        url = "https://api.brevo.com/v3/smtp/email"
+
+        headers = {
+            "accept": "application/json",
+            "api-key": api_key,
+            "content-type": "application/json"
+        }
+
+        data = {
+            "sender": {
+                "name": "Safety System",
+                "email": "alerts@servicedogsafety.com"
+            },
+            "to": [{"email": to_email}],
+            "subject": subject,
+            "textContent": body
+        }
+
+        response = requests.post(url, headers=headers, json=data)
+
+        logger.info(f"Brevo Email Response: {response.status_code}")
+        return response.status_code in [200, 201]
+
+    except Exception as e:
+        logger.error(f"Brevo Email Error: {e}")
+        return False
+        
 def get_current_state():
     state = SystemState.query.first()
     if not state:
