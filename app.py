@@ -147,6 +147,13 @@ def resume():
     db.session.commit()
     return redirect(url_for('index'))
 
+@app.route('/test-email')
+def test_email():
+    subject = "Safety System Test Email"
+    body = "This is a manual test of the Brevo email system."
+    success = send_email(MY_EMAIL, subject, body)
+    return f"Email sent: {success}", 200
+    
 # --- Scheduler Jobs ---
 def daily_ping():
     with app.app_context():
