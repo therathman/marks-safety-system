@@ -162,15 +162,18 @@ def test_dailyping():
     
 # --- Scheduler Jobs ---
 def daily_ping():
-   def daily_ping():
     with app.app_context():
+        logger.info("daily_ping started")
         state = get_current_state()
         if state.state == 'active':
             link = f"{os.environ.get('APP_URL')}/checkin/{CHECKIN_TOKEN}"
             subject = "Daily Safety Check-In"
             body = f"Good morning! Safety check-in for Angel & Scout. Please check in here: {link}"
 
+            logger.info(f"Sending gateway email to {MY_GATEWAY_EMAIL}")
             success_gateway = send_email(MY_GATEWAY_EMAIL, subject, body)
+
+            logger.info(f"Sending regular email to {MY_EMAIL}")
             success_email = send_email(MY_EMAIL, subject, body)
 
             db.session.add(AlertLog(alert_type='Daily Ping', success=(success_gateway and success_email)))
