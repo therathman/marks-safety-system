@@ -157,12 +157,18 @@ def test_email():
     
 # --- Scheduler Jobs ---
 def daily_ping():
+   def daily_ping():
     with app.app_context():
         state = get_current_state()
         if state.state == 'active':
-            msg = f"Good morning! Safety check-in for Angel & Scout. Tap: {os.environ.get('APP_URL')}/checkin/{CHECKIN_TOKEN}"
-            success = send_sms(MY_PHONE, msg)
-            db.session.add(AlertLog(alert_type='Daily Ping', success=success))
+            link = f"{os.environ.get('APP_URL')}/checkin/{CHECKIN_TOKEN}"
+            subject = "Daily Safety Check-In"
+            body = f"Good morning! Safety check-in for Angel & Scout. Please check in here: {link}"
+
+            success_gateway = send_email(MY_GATEWAY_EMAIL, subject, body)
+            success_email = send_email(MY_EMAIL, subject, body)
+
+            db.session.add(AlertLog(alert_type='Daily Ping', success=(success_gateway and success_email)))
             db.session.commit()
 
 # --- Initialize ---
