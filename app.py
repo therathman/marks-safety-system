@@ -154,6 +154,11 @@ def test_email():
     body = "This is a manual test of the Brevo email system."
     success = send_email(MY_EMAIL, subject, body)
     return f"Email sent: {success}", 200
+
+@app.route('/test-dailyping')
+def test_dailyping():
+    daily_ping()
+    return "Daily ping triggered", 200
     
 # --- Scheduler Jobs ---
 def daily_ping():
