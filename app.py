@@ -84,7 +84,7 @@ def send_email(to_email, subject, body):
 
         response = requests.post(url, headers=headers, json=data)
 
-       logger.info(f"Brevo Email Response: {response.status_code} {response.text}")
+        logger.info(f"Brevo Email Response: {response.status_code} {response.text}")
         return response.status_code in [200, 201]
 
     except Exception as e:
